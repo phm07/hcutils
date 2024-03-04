@@ -14,6 +14,13 @@ import (
 	"time"
 )
 
+type downloadType string
+
+const (
+	downloadTypeArchive downloadType = "archive"
+	downloadTypeImage   downloadType = "image"
+)
+
 func NewDownloadVolumeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "volume",
@@ -24,6 +31,8 @@ hcutils download volume --id 1234 --out volume.tar.gz`,
 		SilenceUsage: true,
 		RunE:         downloadVolume,
 	}
+
+	cmd.Flags().String("type", "archive", "Type of download (archive or image)")
 
 	cmd.Flags().String("out", "", "Output file")
 
@@ -37,6 +46,15 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 	ctx := context.Background()
 	volumeId, _ := cmd.Flags().GetString("id")
 	outFileName, _ := cmd.Flags().GetString("out")
+	downloadTypeStr, _ := cmd.Flags().GetString("type")
+
+	var dlType downloadType
+	switch downloadTypeStr {
+	case string(downloadTypeArchive), string(downloadTypeImage):
+		dlType = downloadType(downloadTypeStr)
+	default:
+		return fmt.Errorf("invalid download type: %s", downloadTypeStr)
+	}
 
 	client, err := util3.InitHCloudClient()
 	if err != nil {
@@ -184,7 +202,11 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 	}()
 
 	if outFileName == "" {
-		outFileName = fmt.Sprintf("volume-%d.tar.gz", volume.ID)
+		if dlType == downloadTypeArchive {
+			outFileName = fmt.Sprintf("volume-%d.tar.gz", volume.ID)
+		} else {
+			outFileName = fmt.Sprintf("volume-%d.img.gz", volume.ID)
+		}
 	}
 
 	outFile, err := os.OpenFile(outFileName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
@@ -199,7 +221,11 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 	session.Stdout = outFile
 
 	fmt.Printf("Downloading volume %s to %s...\n", volume.Name, outFileName)
-	err = session.Run(fmt.Sprintf(`cd /mnt/HC_Volume_%d/ && tar czf - . | cat`, volume.ID))
+	if dlType == downloadTypeArchive {
+		err = session.Run(fmt.Sprintf(`cd /mnt/HC_Volume_%d/ && tar czf - . | cat`, volume.ID))
+	} else {
+		err = session.Run(fmt.Sprintf(`dd if=%s bs=32M | gzip -f`, volume.LinuxDevice))
+	}
 	if err != nil {
 		return err
 	}
