@@ -241,7 +241,16 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 			return err
 		}
 		if reattach {
+
 			fmt.Printf("Reattaching volume %s to server %s\n", volume.Name, reattachTo.Name)
+			action, _, err = client.Volume.Detach(ctx, volume)
+			if err != nil {
+				return err
+			}
+			if err = util.WaitForAction(ctx, client, action); err != nil {
+				return err
+			}
+
 			action, _, err = client.Volume.Attach(ctx, volume, reattachTo)
 			if err != nil {
 				return err
