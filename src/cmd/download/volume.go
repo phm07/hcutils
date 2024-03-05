@@ -8,10 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"hcutils/src/util"
-	util3 "hcutils/src/util"
-	"net"
 	"os"
-	"time"
 )
 
 type downloadType string
@@ -56,7 +53,7 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 		return fmt.Errorf("invalid download type: %s", downloadTypeStr)
 	}
 
-	client, err := util3.InitHCloudClient()
+	client, err := util.InitHCloudClient()
 	if err != nil {
 		return err
 	}
@@ -78,7 +75,7 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 			return err
 		}
 
-		unmount, err := util3.AskConfirmation(
+		unmount, err := util.AskConfirmation(
 			fmt.Sprintf(
 				"Volume %s is attached to server %s. To download the volume, it needs to be datached. "+
 					"Do you want to unmount it?\nWarning: This could possibly lead to data loss",
@@ -105,13 +102,13 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 		}
 	}
 
-	signer, pubKey, err := util3.GenerateSSHKeypair()
+	signer, pubKey, err := util.GenerateSSHKeypair()
 	if err != nil {
 		return err
 	}
 
 	sshKey, _, err := client.SSHKey.Create(ctx, hcloud.SSHKeyCreateOpts{
-		Name:      "hcutil-temp-ssh-" + util3.RandomDigits(5),
+		Name:      "hcutil-temp-ssh-" + util.RandomDigits(5),
 		PublicKey: pubKey,
 		Labels:    map[string]string{"created-by": "hcutils"},
 	})
@@ -119,15 +116,9 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	defer func() {
-		fmt.Println("Deleting SSH key...")
-		_, deleteErr := client.SSHKey.Delete(ctx, sshKey)
-		err = errors.Join(err, deleteErr)
-	}()
-
 	fmt.Println("Creating temporary server...")
 	result, _, err := client.Server.Create(ctx, hcloud.ServerCreateOpts{
-		Name:       "hcutil-temp-srv-" + util3.RandomDigits(5),
+		Name:       "hcutil-temp-srv-" + util.RandomDigits(5),
 		Location:   volume.Location,
 		ServerType: &hcloud.ServerType{Name: "cx11"},
 		Image:      &hcloud.Image{Name: "ubuntu-22.04"},
@@ -149,19 +140,15 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 		}
 	}()
 
-	fmt.Println("Waiting server to start...")
-	start := time.Now()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		if time.Since(start) > time.Minute {
-			return errors.New("timeout waiting for server to start")
-		}
-		conn, _ := net.DialTimeout("tcp", server.PublicNet.IPv4.IP.String()+":22", time.Second)
-		if conn != nil {
-			_ = conn.Close()
-			break
-		}
+	_, err = client.SSHKey.Delete(ctx, sshKey)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Waiting for server to start...")
+	err = util.WaitForServerStart(server)
+	if err != nil {
+		return err
 	}
 
 	fmt.Println("Attaching volume...")
@@ -231,7 +218,7 @@ func downloadVolume(cmd *cobra.Command, _ []string) (err error) {
 	}
 
 	if reattachTo != nil {
-		reattach, err := util3.AskConfirmation(
+		reattach, err := util.AskConfirmation(
 			fmt.Sprintf(
 				"Volume %s was attached to server %s. Do you want to reattach it?",
 				volume.Name, reattachTo.Name,

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"hcutils/src/cmd/download"
+	"hcutils/src/cmd/upload"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -14,6 +15,7 @@ func Execute() {
 	}
 	rootCmd.AddCommand(
 		download.NewDownloadCommand(),
+		upload.NewUploadCommand(),
 	)
 
 	err := rootCmd.Execute()
